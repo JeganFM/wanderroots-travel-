@@ -791,11 +791,11 @@
 
     <div class="search-panel active" id="panel-flights">
       <div class="trip-type-row">
-        <label><input type="radio" name="triptype" checked> Round trip</label>
-        <label><input type="radio" name="triptype"> One way</label>
-        <label><input type="radio" name="triptype"> Multi-city</label>
+        <label><input type="radio" name="triptype" value="roundtrip" checked onchange="updateTripType()"> Round trip</label>
+        <label><input type="radio" name="triptype" value="oneway" onchange="updateTripType()"> One way</label>
+        <label><input type="radio" name="triptype" value="multicity" onchange="updateTripType()"> Multi-city</label>
       </div>
-      <div class="search-fields">
+      <div class="search-fields" id="main-flight-row">
         <div class="search-field">
           <label>From</label>
           <input type="text" id="flight-from" placeholder="City or airport">
@@ -810,11 +810,15 @@
           <label>Depart</label>
           <input type="date" id="flight-depart">
         </div>
-        <div class="search-field">
+        <div class="search-field" id="return-field-wrap">
           <label>Return</label>
           <input type="date" id="flight-return">
         </div>
         <button class="search-btn" id="flight-search-btn" onclick="handleFlightSearch()">Search Flights</button>
+      </div>
+      <div id="multicity-legs"></div>
+      <div id="multicity-add-wrap" style="display:none; margin-top: 0.75rem;">
+        <button type="button" class="route-chip" onclick="addMulticityLeg()" style="cursor:pointer;">+ Add another flight</button>
       </div>
       <div class="popular-routes">
         <span class="label">Popular routes:</span>
@@ -963,6 +967,63 @@
     document.getElementById('results-trips').classList.remove('active');
   }
 
+  /* ---------- TRIP TYPE TOGGLE ---------- */
+  let multicityLegCount = 0;
+
+  function getTripType() {
+    const checked = document.querySelector('input[name="triptype"]:checked');
+    return checked ? checked.value : 'roundtrip';
+  }
+
+  function updateTripType() {
+    const type = getTripType();
+    const returnWrap = document.getElementById('return-field-wrap');
+    const returnInput = document.getElementById('flight-return');
+    const multicityLegs = document.getElementById('multicity-legs');
+    const addWrap = document.getElementById('multicity-add-wrap');
+
+    if (type === 'roundtrip') {
+      returnWrap.style.display = '';
+      returnInput.disabled = false;
+      multicityLegs.innerHTML = '';
+      multicityLegs.style.display = 'none';
+      addWrap.style.display = 'none';
+      multicityLegCount = 0;
+    } else if (type === 'oneway') {
+      returnWrap.style.display = 'none';
+      returnInput.value = '';
+      returnInput.disabled = true;
+      multicityLegs.innerHTML = '';
+      multicityLegs.style.display = 'none';
+      addWrap.style.display = 'none';
+      multicityLegCount = 0;
+    } else if (type === 'multicity') {
+      returnWrap.style.display = 'none';
+      returnInput.value = '';
+      returnInput.disabled = true;
+      multicityLegs.style.display = 'block';
+      addWrap.style.display = 'block';
+      if (multicityLegCount === 0) addMulticityLeg();
+    }
+  }
+
+  function addMulticityLeg() {
+    multicityLegCount++;
+    const id = multicityLegCount;
+    const legsContainer = document.getElementById('multicity-legs');
+    const row = document.createElement('div');
+    row.className = 'search-fields';
+    row.id = 'leg-' + id;
+    row.style.marginTop = '0.85rem';
+    row.innerHTML =
+      '<div class="search-field"><label>From</label><input type="text" class="leg-from" placeholder="City or airport"></div>'
+      + '<div class="search-field"><label>To</label><input type="text" class="leg-to" placeholder="City or airport"></div>'
+      + '<div class="search-field"><label>Depart</label><input type="date" class="leg-depart"></div>'
+      + '<div class="search-field"></div>'
+      + '<button type="button" class="search-btn" style="background: var(--clay);" onclick="document.getElementById(\'leg-' + id + '\').remove()">Remove</button>';
+    legsContainer.appendChild(row);
+  }
+
   function fillRoute(from, to) {
     document.getElementById('flight-from').value = from;
     document.getElementById('flight-to').value = to;
@@ -1039,6 +1100,8 @@
       return;
     }
 
+    const tripType = getTripType();
+
     const btn = document.getElementById('flight-search-btn');
     const original = btn.textContent;
     btn.textContent = 'Searching...';
@@ -1046,6 +1109,24 @@
 
     const resultsPanel = document.getElementById('results-flights');
     document.getElementById('results-trips').classList.remove('active');
+
+    if (tripType === 'multicity') {
+      const legRows = document.querySelectorAll('#multicity-legs > div');
+      const legs = [{ from, to }];
+      legRows.forEach(row => {
+        const lf = row.querySelector('.leg-from').value.trim();
+        const lt = row.querySelector('.leg-to').value.trim();
+        if (lf && lt) legs.push({ from: lf, to: lt });
+      });
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+        renderMulticityResults(legs);
+        resultsPanel.classList.add('active');
+        resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 900);
+      return;
+    }
 
     setTimeout(() => {
       btn.textContent = original;
@@ -1055,6 +1136,33 @@
       resultsPanel.classList.add('active');
       resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 900);
+  }
+
+  function renderMulticityResults(legs) {
+    const panel = document.getElementById('results-flights');
+    let html = '<div class="results-panel-header"><h4>Multi-city itinerary · ' + legs.length + ' flight' + (legs.length > 1 ? 's' : '') + '</h4><span>Prices in USD, per person</span></div>';
+
+    legs.forEach((leg, legIdx) => {
+      const flight = generateFlights(leg.from, leg.to)[0];
+      const stopsLabel = flight.stops === 0 ? 'Direct' : flight.stops + ' stop' + (flight.stops > 1 ? 's' : '');
+      html += '<div style="font-size:0.78rem; font-weight:700; color: var(--clay); margin: 0.75rem 0 0.4rem; text-transform:uppercase; letter-spacing:0.05em;">Flight ' + (legIdx + 1) + '</div>';
+      html += '<div class="flight-result">'
+        + '<div class="flight-airline">'
+          + '<div class="airline-badge">' + flight.airline.code + '</div>'
+          + '<div><div class="airline-name">' + flight.airline.name + '</div><div class="airline-sub">' + flight.airline.sub + '</div></div>'
+        + '</div>'
+        + '<div class="flight-route">'
+          + '<div class="flight-time"><div class="t">' + flight.depTime + '</div><div class="code">' + airportCode(leg.from) + '</div></div>'
+          + '<div class="flight-path"><div class="dur">' + flight.duration + '</div><div class="line"></div><div class="stops">' + stopsLabel + '</div></div>'
+          + '<div class="flight-time"><div class="t">' + flight.arrTime + '</div><div class="code">' + airportCode(leg.to) + '</div></div>'
+        + '</div>'
+        + '<div class="flight-price-block">'
+          + '<div class="flight-price">$' + flight.price.toLocaleString() + '</div>'
+        + '</div>'
+      + '</div>';
+    });
+
+    panel.innerHTML = html;
   }
 
   function renderFlightResults(flights, from, to) {
